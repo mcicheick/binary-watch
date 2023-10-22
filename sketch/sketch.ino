@@ -1,25 +1,25 @@
 #include <IRremote.h>
 
-#define BTN_STOP 0xA2
-#define BTN_MENU 0xE2
+#define BTN_STOP 0x45
+#define BTN_MENU 0x47
 #define BTN_TEST 0x22
-#define BTN_PLUS 0x02
+#define BTN_PLUS 0x09
 #define BTN_BACK 0xC2
-#define BTN_BACKWARD 0xE0
-#define BTN_PLAY 0xA8
-#define BTN_FORWARD 0x90
-#define BTN_MINUS 0x98
+#define BTN_BACKWARD 0x44
+#define BTN_PLAY 0x40
+#define BTN_FORWARD 0x43
+#define BTN_MINUS 0x07
 #define BTN_CANCEL 0xB0
-#define BTN_ZERO 0x68
-#define BTN_ONE 0x30
+#define BTN_ZERO 0x16
+#define BTN_ONE 0x0C
 #define BTN_TWO 0x18
-#define BTN_THREE 0x7A
-#define BTN_FOUR 0x10
-#define BTN_FIVE 0x38
+#define BTN_THREE 0x5E
+#define BTN_FOUR 0x08
+#define BTN_FIVE 0x1C
 #define BTN_SIX 0x5A
 #define BTN_SEVEN 0x42
-#define BTN_EIGHT 0x4A
-#define BTN_NINE 0x52
+#define BTN_EIGHT 0x52
+#define BTN_NINE 0x4A
 
 #define PIN2 2
 #define PIN3 3
@@ -53,9 +53,15 @@
 #define MINUTE_BASE 60
 #define HOUR_BASE 12
 #define COMMAND_INTERVAL 1000
+#define PRESS_INTERVAL 100
 #define BLINK_INTERVAL 500
 
 #define IR_PIN A5
+
+#define RGB_PIN_RED A4
+#define RGB_PIN_GREEN 0
+#define RGB_PIN_BLUE 1
+
 IRrecv irrecv(IR_PIN);
 
 uint8_t secondCounter = 0;
@@ -65,6 +71,7 @@ uint64_t lastClockPoint;
 uint64_t lastReceivedCommandTime = 0;
 uint8_t lastReceivedCommand = 0;
 uint8_t *cursor = 0;
+bool started = 1;
 
 void incSecond() {
   secondCounter++;
@@ -170,7 +177,7 @@ void handleClock() {
     setHour(hourCounter);
     uint64_t currentMillis = millis();
     // delay(WATCH_DELAY); // wait for WATCH_DELAY milliseconds
-    if (currentMillis - lastClockPoint >= WATCH_DELAY) { // Do not use delay anymore.
+    if (currentMillis - lastClockPoint >= WATCH_DELAY && started) { // Do not use delay anymore.
       secondCounter++;
       minuteCounter = minuteCounter + (secondCounter / SECOND_BASE);
       hourCounter = hourCounter + (minuteCounter / MINUTE_BASE);
@@ -190,52 +197,64 @@ void handleIR() {
   if (irrecv.decode())  {
     uint64_t currentTime = millis();
     uint8_t command = irrecv.decodedIRData.command;
-    // Serial.println(command, HEX);
+    Serial.println(command, HEX);
     irrecv.resume(); // Receive  the next value
-    uint64_t consecutiveCommand = currentTime - lastReceivedCommandTime < COMMAND_INTERVAL;
-    switch(command) {
-      case BTN_PLAY:
-        cursor = 0;
-        break;
-      case BTN_MENU:
-        if (cursor == 0) {
-          cursor = &secondCounter;
-        } else if (cursor == &secondCounter) {
-          cursor = &minuteCounter;
-        } else if (cursor == &minuteCounter) {
-          cursor = &hourCounter;
-        } else if (cursor == &hourCounter) {
-          cursor = &secondCounter;
-        }
-        break;
-      case BTN_PLUS:
-        if (cursor == &secondCounter) {
-          incSecond();
-        } else if (cursor == &minuteCounter) {
-          incMinute();
-        } else if (cursor == &hourCounter) {
-          incHour();
-        } 
-        Serial.print("Cursor value = ");
-        Serial.println(*cursor);
-        break;
-      case BTN_MINUS:
-        if (cursor == &secondCounter) {
-          decSecond();
-        } else if (cursor == &minuteCounter) {
-          decMinute();
-        } else if (cursor == &hourCounter) {
-          decHour();
-        } 
-        Serial.print("Cursor value = ");
-        Serial.println(*cursor);
-        break;
-      default:
-        break;
-        // Do nothing
+    uint64_t laps = currentTime - lastReceivedCommandTime;
+    if (laps > PRESS_INTERVAL) {
+      switch(command) {
+        case BTN_STOP:
+          started = !started;
+          break;
+        case BTN_PLAY:
+          cursor = 0;
+          break;
+        case BTN_MENU:
+          if (cursor == 0) {
+            cursor = &secondCounter;
+          } else if (cursor == &secondCounter) {
+            cursor = &minuteCounter;
+          } else if (cursor == &minuteCounter) {
+            cursor = &hourCounter;
+          } else if (cursor == &hourCounter) {
+            cursor = &secondCounter;
+          }
+          break;
+        case BTN_PLUS:
+          if (cursor == &secondCounter) {
+            incSecond();
+          } else if (cursor == &minuteCounter) {
+            incMinute();
+          } else if (cursor == &hourCounter) {
+            incHour();
+          } 
+          Serial.print("Cursor value = ");
+          Serial.println(*cursor);
+          break;
+        case BTN_MINUS:
+          if (cursor == &secondCounter) {
+            decSecond();
+          } else if (cursor == &minuteCounter) {
+            decMinute();
+          } else if (cursor == &hourCounter) {
+            decHour();
+          } 
+          Serial.print("Cursor value = ");
+          Serial.println(*cursor);
+          break;
+        default:
+          break;
+          // Do nothing
+      }
+      lastReceivedCommandTime = currentTime;
     }
-    
-    lastReceivedCommandTime = currentTime;
+  }
+}
+
+void displayIndicator() {
+  if (cursor != 0) {
+    analogWrite(RGB_PIN_RED, HIGH);
+  } else {
+    digitalWrite(RGB_PIN_RED, LOW);
   }
 }
 
@@ -248,6 +267,10 @@ void setup() {
   for (byte i = PINA0; i <= PINA3; i++) {
     pinMode(i, OUTPUT);
   }
+  pinMode(RGB_PIN_RED, OUTPUT);
+  //pinMode(RGB_PIN_GREEN, OUTPUT);
+  //pinMode(RGB_PIN_BLUE, OUTPUT);
+
   lastClockPoint = millis();
   setSecond(secondCounter);
   setMinute(minuteCounter);
@@ -257,4 +280,5 @@ void setup() {
 void loop() {
   handleClock();
   handleIR();
+  displayIndicator();
 }
